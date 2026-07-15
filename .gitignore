@@ -1,0 +1,39 @@
+# Data & model artifacts (large / not for VCS)
+# NOTE: anchored to repo root so it does NOT match the src .../data/ package.
+/data/
+*.csv
+*.pt
+*.pth
+*.pkl
+*.joblib
+
+# Claude Code local settings / temp files
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling / caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# Env / secrets
+.env
+kaggle.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
