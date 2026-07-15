@@ -216,4 +216,32 @@ for detection and the UI. All hyperparameters live in `config.py`.
 statistical threshold, and a severity score), which we can build and unit-test
 now and point at the trained artifacts once they're back.
 
+### Phase 3 — Detection engine *(complete)*
+Written **test-first** (22 new tests; 45 total passing, **99% coverage**, the
+detection modules at 100%). Three small modules under
+`src/anomaly_explainer/detection/`:
+
+- **`reconstruction.py`** — turns the model's rebuild quality into numbers, at
+  two granularities: **per-feature error** (which attributes were badly rebuilt —
+  fuel for the LLM explanation) and **total error** (the mean, used to decide).
+  Runs batched so it handles the full 284k-row dataset without memory blow-ups,
+  and is GPU-aware.
+- **`threshold.py`** — the rule that turns a continuous error into a yes/no call.
+  Two strategies: **`sigma`** (`mean + k·std` of normal errors) and
+  **`percentile`** (top *X%* most poorly reconstructed). The threshold is fit on
+  *normal* errors only, and tuning it is the main lever for trading false alarms
+  against missed frauds.
+- **`engine.py`** — the `AnomalyDetector`: for each transaction it produces the
+  error, the anomaly flag (`error > threshold`), and a **severity score**
+  (`error / threshold`, so `> 1` means anomalous). `top_contributors()` lists the
+  features most responsible for an anomaly — the bridge to the explainer.
+
+Everything here is deterministic and unit-tested against a fresh model on
+synthetic data, so it already works; once the trained `data/artifacts/` come back
+from the GPU machine, the detector plugs straight in with real weights.
+
+**Next:** Phase 4 — evaluation (precision/recall/F1/PR-AUC on the labelled
+val/test sets, and a threshold sweep to minimise false positives), which is where
+we finally use the real trained model.
+
 *(Later phases will be appended here as they are completed.)*
