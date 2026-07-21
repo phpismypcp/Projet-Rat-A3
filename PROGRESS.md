@@ -130,8 +130,8 @@ replaced independently.
   weights and the scaler.
 - **Phase 3 — Detection engine**: reconstruction error (total + per-feature),
   threshold, severity score.
-- **Phase 4 — Evaluation**: precision/recall/F1/PR-AUC; tune threshold to cut
-  false positives.
+- **Phase 4 — Evaluation** *(complete)*: precision/recall/F1/PR-AUC; tune
+  threshold to cut false positives.
 - **Phase 5 — LLM explainer**: prompt → Ollama → structured explanation, with
   graceful fallback if the model is unavailable.
 - **Phase 6 — Streamlit UI**: the analyst dashboard.
@@ -243,5 +243,102 @@ from the GPU machine, the detector plugs straight in with real weights.
 **Next:** Phase 4 — evaluation (precision/recall/F1/PR-AUC on the labelled
 val/test sets, and a threshold sweep to minimise false positives), which is where
 we finally use the real trained model.
+
+### Phase 4 — Evaluation & threshold tuning *(complete)*
+Written **test-first** (29 new tests; 74 total passing, **99% coverage**, the
+evaluation modules at 100%). This is the phase where the real trained model was
+finally measured — and it exposed a serious bug in our own defaults.
+
+#### The headline finding: our default threshold was catching almost nothing
+
+The model itself was fine. The *rule we used to read it* was broken.
+
+Reconstruction errors on normal transactions are **extremely right-skewed**:
+mean `0.0442`, but median only `0.0074`, with std `3.19`. A handful of hard-to-
+rebuild normal transactions drag the mean and the standard deviation far above
+where the bulk of the data actually sits. The textbook `mean + 3·σ` rule
+therefore lands at **9.60** — deep in the tail, above almost every fraud too.
+
+> With the old `sigma` default the detector caught **15 of 246 frauds (6% recall,
+> F1 = 0.114)**. The model was working; the threshold was throwing its answers away.
+
+We also tested a robust variant (`median + k·MAD`) in case the skew was the only
+problem — it peaked at F1 ≈ 0.67, still worse than percentiles. So the fix is to
+threshold by **percentile of the normal error distribution**, which is immune to
+the skew by construction: it asks "what do the worst 0.1% of normal transactions
+look like?" rather than assuming a bell curve that isn't there.
+
+#### Choosing the operating point on evidence
+
+`evaluation/sweep.py` walks candidate percentiles on the **validation** split and
+reports the trade-off at each, so the choice is made from a table, not a guess:
+
+| percentile | threshold | TP | FP | precision | recall | F1 |
+|-----------:|----------:|---:|---:|----------:|-------:|----:|
+| 99.0 | 0.322 | 199 | 427 | 0.318 | 0.809 | 0.456 |
+| 99.5 | 0.492 | 198 | 214 | 0.481 | 0.805 | 0.602 |
+| 99.8 | 0.863 | 188 |  86 | 0.686 | 0.764 | 0.723 |
+| **99.9** | **1.263** | **170** | **43** | **0.798** | **0.691** | **0.741** |
+| 99.95 | 1.804 | 130 | 22 | 0.855 | 0.528 | 0.653 |
+
+The table makes the trade-off concrete: loosening to the 99th percentile buys
+12 extra frauds but costs **~10x more false alarms**. `99.9` is the F1-optimal
+balance and is now the configured default.
+
+#### Final result on the held-out test set
+
+The threshold was chosen on validation only, then the test split — untouched
+until this point — was scored **once**. Its numbers are therefore an unbiased
+estimate rather than a number we tuned toward:
+
+| Metric | Test set (42,894 rows, 246 frauds) |
+|---|---|
+| Precision | **0.842** |
+| Recall | **0.715** |
+| F1 | **0.774** |
+| PR-AUC | **0.742** (random baseline: 0.0057 — a **129x** lift) |
+| ROC-AUC | 0.964 |
+| False positives | **33 out of 42,648 normal transactions (0.08%)** |
+
+Two things worth noting. First, test F1 (0.774) came out slightly *above*
+validation F1 (0.741), which is the sign we wanted: the threshold was not overfit
+to the validation split. Second, that 0.08% false-positive rate is the project
+spec's *"réduction drastique du nombre de faux positifs"*, delivered — an analyst
+reviewing this queue sees roughly 4 alerts to find 3 real frauds.
+
+Against the old `sigma` default on the same test set, F1 went from **0.114 to
+0.774** — a **6.8x** improvement from changing one configuration decision.
+
+#### What was built
+
+- **`evaluation/metrics.py`** — confusion counts plus precision / recall / F1 /
+  PR-AUC / ROC-AUC. Rates are computed as properties from the counts rather than
+  stored, so they cannot drift out of sync. Validates labels and scores at the
+  boundary (length, emptiness, binary labels).
+- **`evaluation/sweep.py`** — the percentile sweep, with two selectors:
+  `best_by_f1()` (balanced) and `best_at_min_precision(p)` (maximise recall
+  subject to an analyst-workload budget).
+- **`detection/threshold.py`** — now records *how* a threshold was derived
+  (`parameter` = k or percentile) and can **save/load `threshold.json`**. This
+  matters: the UI and explainer must reuse the exact tuned value, never silently
+  re-derive their own.
+- **`scripts/evaluate.py`** — runs the whole procedure, persists the threshold,
+  and writes `evaluation_report.json` + `pr_curve.png` for the defense.
+- **`config.py`** — default method switched to `percentile` at `99.9`, with the
+  reasoning recorded in the docstring so the choice isn't a mystery later.
+
+**Next:** Phase 5 — the LLM explainer. Two prerequisites identified while
+reviewing the spec against the code:
+1. `reconstruction.py` currently returns only *errors*, but the spec requires the
+   LLM to also see the **reconstructed values**; a function returning them needs
+   adding.
+2. Values must be **inverse-transformed** back to real units before reaching the
+   LLM, so an explanation reads "Amount = €4,821" instead of a z-score.
+
+⚠️ **Blocker for Phase 5:** Ollama is installed and running but has **no model
+pulled** (`/api/tags` returns an empty list) — the Phase 0 pull never completed.
+Run `ollama pull llama3.2:3b` (~2 GB) before the explainer can be demoed live.
+The explainer will be built with a template fallback so tests and the UI still
+work without it.
 
 *(Later phases will be appended here as they are completed.)*

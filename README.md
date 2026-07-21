@@ -23,7 +23,7 @@ Modules (`src/anomaly_explainer/`):
 | `data/`       | Chargement, validation de schéma, prétraitement (immutable) |
 | `model/`      | Transformer auto-encodeur, entraînement, persistance        |
 | `detection/`  | Erreur de reconstruction, seuil statistique, sévérité       |
-| `evaluation/` | Precision / recall / F1 / PR-AUC vs label `Class`           |
+| `evaluation/` | Métriques (P/R/F1/PR-AUC) et balayage de seuil               |
 | `explain/`    | Prompt, client Ollama, explication structurée               |
 | `app/`        | Interface analyste Streamlit                                |
 
@@ -58,9 +58,31 @@ ollama pull llama3.2:3b
 # Entraînement (détecte automatiquement le GPU/CUDA, sinon CPU)
 PYTHONPATH=src ./.venv/bin/python scripts/train_model.py
 
+# Évaluation + calibration du seuil (écrit threshold.json dans data/artifacts/)
+PYTHONPATH=src ./.venv/bin/python scripts/evaluate.py
+
 # Interface analyste
 PYTHONPATH=src ./.venv/bin/streamlit run app/streamlit_app.py
 ```
+
+> `scripts/evaluate.py` doit être lancé **après** l'entraînement : il calibre le
+> seuil de détection sur le jeu de validation et l'enregistre dans
+> `data/artifacts/threshold.json`, que le détecteur et l'interface réutilisent.
+
+## Résultats (jeu de test, 42 894 transactions dont 246 fraudes)
+
+| Métrique | Valeur |
+|----------|--------|
+| Précision | 0,842 |
+| Rappel | 0,715 |
+| F1 | 0,774 |
+| PR-AUC | 0,742 *(baseline aléatoire : 0,0057)* |
+| ROC-AUC | 0,964 |
+| Faux positifs | 33 sur 42 648 transactions normales (0,08 %) |
+
+Seuil retenu : 99,9ᵉ percentile des erreurs de reconstruction normales
+(`1,2634`), choisi par balayage sur le jeu de **validation** puis évalué une
+seule fois sur le jeu de **test**.
 
 ### Entraîner sur une autre machine (GPU recommandé)
 

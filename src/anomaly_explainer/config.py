@@ -70,10 +70,19 @@ class TrainConfig:
 
 @dataclass(frozen=True)
 class DetectionConfig:
-    # Threshold = mean + k * std of reconstruction error on normal validation set.
-    # A percentile-based alternative is also supported by the threshold module.
+    """How the continuous reconstruction error becomes a yes/no decision.
+
+    ``percentile`` is the default, and that choice is empirical. The normal
+    reconstruction errors are strongly right-skewed (mean ~0.044 vs median
+    ~0.007, std ~3.19), so the textbook ``mean + 3*sigma`` rule lands at ~9.6 —
+    far out in the tail, catching only 5% of frauds. The 99.9th percentile sits
+    at ~1.26 and was the F1-optimal point of the Phase 4 sweep on validation
+    (precision 0.80, recall 0.69). ``sigma`` is kept for comparison only.
+    """
+
+    threshold_method: str = "percentile"
     threshold_sigma_k: float = 3.0
-    threshold_percentile: float = 99.5
+    threshold_percentile: float = 99.9
 
 
 # --- LLM explainer (Ollama) -------------------------------------------------

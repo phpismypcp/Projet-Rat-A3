@@ -1,14 +1,17 @@
-"""Tests for statistical threshold computation (Phase 3, TDD)."""
+"""Tests for statistical threshold computation (Phase 3) and persistence (Phase 4)."""
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from anomaly_explainer.config import DETECTION
 from anomaly_explainer.detection.threshold import (
     Threshold,
     fit_threshold,
+    load_threshold,
     percentile_threshold,
+    save_threshold,
     sigma_threshold,
 )
 
@@ -67,3 +70,41 @@ def test_threshold_above_most_normal_errors():
     errors = np.abs(rng.normal(0, 1, 10000))
     t = fit_threshold(errors, method="sigma")
     assert (errors < t.value).mean() > 0.9
+
+
+def test_fit_threshold_defaults_to_configured_method():
+    """The method lives in config, not in a function default."""
+    errors = np.abs(np.random.default_rng(4).normal(0, 1, 500))
+    assert fit_threshold(errors).method == DETECTION.threshold_method
+
+
+def test_fit_threshold_records_its_parameter():
+    """The tuned value alone is not reproducible — record k / the percentile."""
+    errors = np.abs(np.random.default_rng(3).normal(0, 1, 500))
+
+    sigma = fit_threshold(errors, method="sigma")
+    assert sigma.parameter == DETECTION.threshold_sigma_k
+
+    pct = fit_threshold(errors, method="percentile")
+    assert pct.parameter == DETECTION.threshold_percentile
+
+
+# --- persistence (Phase 4) --------------------------------------------------
+
+def test_save_and_load_threshold_round_trip(tmp_path):
+    original = Threshold(value=1.2634, method="percentile", parameter=99.9)
+    save_threshold(original, tmp_path)
+    assert (tmp_path / "threshold.json").exists()
+
+    assert load_threshold(tmp_path) == original
+
+
+def test_save_threshold_creates_missing_directory(tmp_path):
+    target = tmp_path / "artifacts"
+    save_threshold(Threshold(value=1.0, method="sigma", parameter=3.0), target)
+    assert load_threshold(target).value == 1.0
+
+
+def test_load_threshold_reports_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError, match="threshold.json"):
+        load_threshold(tmp_path)
