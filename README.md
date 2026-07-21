@@ -101,6 +101,29 @@ Seuil retenu : 99,9ᵉ percentile des erreurs de reconstruction normales
 (`1,2634`), choisi par balayage sur le jeu de **validation** puis évalué une
 seule fois sur le jeu de **test**.
 
+### L'attention apporte-t-elle quelque chose ? (baseline)
+
+```bash
+PYTHONPATH=src ./.venv/bin/python scripts/compare_baseline.py --epochs 150
+```
+
+Comparaison à architecture seule variable (mêmes splits, même graine, même
+boucle d'entraînement, même goulot latent, même règle de seuil) :
+
+| Modèle | Params | PR-AUC | F1 | Faux positifs |
+|--------|-------:|-------:|---:|--------------:|
+| **Transformer AE (spec)** | 269 137 | **0,7422** | **0,774** | **33** |
+| Dense AE (goulot équivalent) | 9 198 | 0,6635 | 0,624 | 52 |
+| Dense AE (capacité équivalente) | 302 638 | 0,7138 | 0,687 | 62 |
+
+Le Transformer l'emporte, y compris face à un modèle dense **plus gros** — et
+surtout avec **~2x moins de faux positifs**.
+
+> À noter : le dense large atteint une erreur de reconstruction bien plus faible
+> (0,031 vs 0,126) mais **détecte moins bien**. Une meilleure reconstruction
+> n'implique pas une meilleure détection : trop de capacité permet de reconstruire
+> aussi les fraudes, ce qui annule l'écart d'erreur sur lequel repose la détection.
+
 ### Entraîner sur une autre machine (GPU recommandé)
 
 L'entraînement du Transformer sur CPU est lent (~2 min/époque). Pour l'exécuter

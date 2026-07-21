@@ -55,6 +55,25 @@ class ModelConfig:
 
 
 @dataclass(frozen=True)
+class DenseModelConfig:
+    """Plain (non-attention) auto-encoder used as a baseline.
+
+    The spec mandates a Transformer auto-encoder, but "PR-AUC 0.742" is only
+    meaningful against a reference point. This is that reference: an ordinary
+    fully-connected auto-encoder with the **same bottleneck** (``latent_dim``),
+    trained by the **same loop** on the **same data**, so any difference is
+    attributable to the architecture rather than to the setup.
+
+    ``hidden_dims`` gives the encoder widths; the decoder mirrors them.
+    """
+
+    n_features: int = 30
+    hidden_dims: tuple[int, ...] = (64, 32)
+    latent_dim: int = 16
+    dropout: float = 0.1
+
+
+@dataclass(frozen=True)
 class TrainConfig:
     batch_size: int = 1024
     epochs: int = 30
@@ -117,6 +136,7 @@ class ExplainerConfig:
 
 DATASET = DatasetConfig()
 MODEL = ModelConfig()
+DENSE_MODEL = DenseModelConfig()
 TRAIN = TrainConfig()
 DETECTION = DetectionConfig()
 EXPLAINER = ExplainerConfig()

@@ -434,4 +434,71 @@ an explanation costs 6–9 s on CPU, so the UI must cache per transaction and sh
 a spinner rather than blocking, and detection over the full test set should be
 computed once and cached with `st.cache_resource` / `st.cache_data`.
 
+### Interlude — Does attention actually help? A baseline *(complete)*
+
+The spec mandates a Transformer auto-encoder because attention should capture
+interactions between features. That is a **claim**, and until now we had no
+control for it: "PR-AUC 0.742" had nothing to be better *than*. This is the
+single question a jury is most likely to ask, so we answered it with a
+measurement instead of an assertion.
+
+**How the comparison was made fair.** Everything is held constant except the
+architecture: the same splits, the same seed, the same training loop (optimizer,
+batching, early stopping), the same latent size (16), and the same thresholding
+rule (99.9th percentile of normal validation errors). `train_autoencoder()` was
+refactored to accept a `model_factory` precisely so the baseline reuses the
+*identical* loop rather than a re-implementation of it.
+
+Two baselines, because "the Transformer won" is weak if it merely had more
+capacity:
+
+| Model | Params | Epochs | PR-AUC | Precision | Recall | F1 | False positives |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **Transformer AE (spec)** | 269,137 | — | **0.7422** | 0.842 | 0.715 | **0.774** | **33** |
+| Dense AE (matched bottleneck) | 9,198 | 67 | 0.6635 | 0.722 | 0.549 | 0.624 | 52 |
+| Dense AE (matched capacity) | 302,638 | 13 | 0.7138 | 0.722 | 0.654 | 0.687 | 62 |
+
+**The Transformer wins, and not merely by being bigger** — it beats a dense model
+with *more* parameters (302k vs 269k). Margin over the best baseline: **+0.0284
+PR-AUC**.
+
+**The most defensible number is the false-positive count: 33 vs 62.** At an
+identical thresholding rule the Transformer raises roughly **half the false
+alarms** while also catching more fraud. That is the spec's *"réduction drastique
+du nombre de faux positifs"*, now demonstrated against a control rather than
+asserted.
+
+#### The most interesting finding: better reconstruction ≠ better detection
+
+The wide dense auto-encoder reached a **much lower reconstruction loss** than the
+narrow one (validation 0.031 vs 0.126) and yet **detected worse** (more false
+positives, lower F1). This is the classic over-capacity failure mode: given
+enough width, an auto-encoder learns to rebuild *everything* accurately —
+including the frauds it was never trained on — which collapses the very error gap
+detection depends on.
+
+The lesson is that the bottleneck is not an inconvenience to be minimised; it is
+the mechanism. Optimising reconstruction loss and optimising anomaly detection
+are different objectives, and past a point they actively conflict.
+
+#### A methodology bug this exercise caught
+
+The first run capped baselines at 30 epochs. The small dense model hit that cap
+while still improving (val loss falling monotonically, 0.135 → 0.126), so it was
+*cut off rather than converged* and scored an unfairly low 0.609 PR-AUC. Given
+proper time it converges at 67 epochs and reaches 0.6635.
+
+The conclusion did not change, but the near-miss is the point: a baseline that is
+quietly under-trained makes any comparison flattering to the proposed method.
+`scripts/compare_baseline.py` now takes `--epochs` and records a `converged` flag
+per model, so this cannot silently recur.
+
+#### Honest limits of this result
+
+- **One seed, one split.** With only 246 frauds in the test set, +0.028 PR-AUC is
+  a modest margin and no confidence interval was computed. The false-positive
+  gap (33 vs 52-62) is the more robust difference.
+- The Transformer was trained on the separate GPU machine; the baselines here on
+  CPU. Same loop, config and seed, but not the same hardware.
+
 *(Later phases will be appended here as they are completed.)*

@@ -47,12 +47,17 @@ def train_autoencoder(
     model_config: ModelConfig = MODEL,
     train_config: TrainConfig = TRAIN,
     on_epoch_end: Callable[[int, float, float], None] | None = None,
-) -> tuple[TransformerAutoEncoder, History]:
+    model_factory: Callable[[], nn.Module] | None = None,
+) -> tuple[nn.Module, History]:
     """Train on ``prepared.X_train`` (normal-only) with early stopping.
 
     Args:
         on_epoch_end: optional callback ``(epoch, train_loss, val_loss)`` invoked
             after each epoch, e.g. for live progress logging.
+        model_factory: builds the network to train; defaults to the Transformer
+            auto-encoder. Supplying a factory lets the dense baseline reuse this
+            exact loop — same seed, batching, optimizer and early stopping — so a
+            comparison between architectures isn't confounded by the setup.
 
     Returns the model (restored to its best-validation weights) and a history of
     per-epoch train/val reconstruction losses.
@@ -60,7 +65,8 @@ def train_autoencoder(
     _seed_everything(train_config.random_seed)
     device = resolve_device()
 
-    model = TransformerAutoEncoder(model_config).to(device)
+    build = model_factory or (lambda: TransformerAutoEncoder(model_config))
+    model = build().to(device)
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(
         model.parameters(),
