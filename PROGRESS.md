@@ -79,29 +79,35 @@ an estimated *risk level*, and *next steps* for a human analyst.
    raw transaction
         │
         ▼
- ┌──────────────┐   scale Amount/Time, keep only NORMAL rows for training
- │ Preprocessing│
+ ┌──────────────┐   validate schema, scale features, keep only NORMAL rows for
+ │ Preprocessing│   training; the scaler is fit on the training split alone
  └──────┬───────┘
         ▼
- ┌────────────────────────┐   attention encoder → small latent vector → decoder
+ ┌─────────────────────────┐   attention encoder → small latent vector → decoder
  │ Transformer Auto-Encoder│   (trained ONLY on normal transactions)
- └──────┬─────────────────┘
+ └──────┬──────────────────┘   → model.pt, scaler.pkl, config.json
         ▼
- ┌──────────────┐   reconstruction error vs statistical threshold → normal/anomaly
- │ Detection    │   + a severity score (how far above the threshold)
+ ┌──────────────┐   reconstruction + per-feature error + total error
+ │ Detection    │   → anomaly flag and severity score (error / threshold)
  └──────┬───────┘
         ▼
- ┌──────────────┐   builds a prompt from the errors, asks the local LLM (Ollama),
- │ LLM Explainer│   returns a readable explanation
+ ┌──────────────┐   sweep candidate thresholds on VALIDATION, pick an operating
+ │ Evaluation   │   point, then score TEST once → threshold.json + report
  └──────┬───────┘
         ▼
- ┌──────────────┐   Streamlit dashboard: pick a transaction, see verdict,
- │ Analyst UI   │   per-feature deviations, and the explanation
+ ┌──────────────┐   original values + reconstruction + per-attribute error +
+ │ LLM Explainer│   severity → prompt → Ollama → structured explanation
+ └──────┬───────┘   (deterministic fallback if the LLM is unavailable)
+        ▼
+ ┌──────────────┐   service.py holds the logic; Streamlit draws it — a queue
+ │ Analyst UI   │   ranked by severity, with a justification per detection
  └──────────────┘
 ```
 
 Each box is a separate, small module so it can be understood, tested, and
-replaced independently.
+replaced independently. Note that **evaluation is part of the pipeline, not an
+afterthought**: it is what produces `threshold.json`, which the detector, the
+explainer and the dashboard all read.
 
 ---
 
@@ -122,20 +128,20 @@ replaced independently.
 
 ## 6. Plan of phases
 
-- **Phase 0 — Setup & data** *(in progress)*: project skeleton, dependencies,
+- **Phase 0 — Setup & data** *(complete)*: project skeleton, dependencies,
   Ollama, dataset in place.
-- **Phase 1 — Preprocessing**: validate schema, scale `Time`/`Amount`, split
-  normal vs fraud, train/val/test split. Test-first.
-- **Phase 2 — Transformer auto-encoder**: build + train on normal-only, save
-  weights and the scaler.
-- **Phase 3 — Detection engine**: reconstruction error (total + per-feature),
-  threshold, severity score.
+- **Phase 1 — Preprocessing** *(complete)*: validate schema, scale `Time`/`Amount`,
+  split normal vs fraud, train/val/test split. Test-first.
+- **Phase 2 — Transformer auto-encoder** *(complete)*: build + train on
+  normal-only, save weights and the scaler.
+- **Phase 3 — Detection engine** *(complete)*: reconstruction error (total +
+  per-feature), threshold, severity score.
 - **Phase 4 — Evaluation** *(complete)*: precision/recall/F1/PR-AUC; tune
   threshold to cut false positives.
 - **Phase 5 — LLM explainer** *(complete)*: prompt → Ollama → structured explanation, with
   graceful fallback if the model is unavailable.
 - **Phase 6 — Streamlit UI** *(complete)*: the analyst dashboard.
-- **Phase 7 — Docs & polish**: README, diagram, final test coverage.
+- **Phase 7 — Docs & polish** *(complete)*: README, diagram, final test coverage.
 
 ---
 
@@ -647,5 +653,62 @@ PYTHONPATH=src python scripts/chronological_check.py --arch transformer --epochs
 
 Until then the −26% figure should be quoted as *indicative, measured on a plain
 auto-encoder*, not as a Transformer result.
+
+### Phase 7 — Docs & polish *(complete)*
+
+Final pass over the documentation and the packaging. Two of the findings were
+real defects rather than cosmetics.
+
+#### Two packaging bugs
+
+1. **`altair` was imported but never declared.** `app/charts.py` imports Altair
+   directly, yet it appeared nowhere in `requirements.txt` — the dashboard worked
+   only because Streamlit happens to pull Altair in as a transitive dependency.
+   The day Streamlit changes that, a fresh install breaks with no obvious cause.
+   Now declared explicitly.
+2. **The Streamlit floor was wrong.** `requirements.txt` asked for `>=1.36`, but
+   the dashboard uses `st.dataframe(on_select=…)` for row selection and the
+   `width="stretch"` API that replaced `use_container_width`. A conforming
+   install at 1.36 would have failed at runtime. Raised to `>=1.50`.
+
+Every dependency line now also records the version it was actually tested
+against, so a future failure can be reproduced against a known-good set.
+
+#### README restructured
+
+It had grown by accretion, one phase at a time, and it showed: results were
+buried below setup instructions, and the "train on another machine" section had
+ended up *inside* the results section. Rewritten to lead with what a reader
+actually wants first:
+
+**Results → Architecture → Installation → Usage → Rigour checks → GPU hand-off
+→ Tests**
+
+Also added: a fuller architecture diagram showing the artifacts each stage
+produces (and that `evaluate.py` is what yields `threshold.json`), the missing
+`service.py` row in the module table, and an explicit note that the ordering of
+the usage steps is load-bearing.
+
+#### Small corrections
+
+- Cross-references were originally written as anchor links, but GitHub's anchor
+  algorithm mangles French headings ending in `?` — the generated id carries a
+  trailing hyphen and the links would have silently 404'd. Replaced with one
+  robust link plus plain-text references.
+- The README told readers to run `PYTHONPATH=src pytest`, which is redundant:
+  `pytest.ini` already sets `pythonpath = src`. Verified and corrected.
+- Verified rather than assumed: `pytest` runs clean without `PYTHONPATH`, and
+  `pip install --dry-run -r requirements.txt` resolves.
+
+#### Final state
+
+- **169 tests + 5 opt-in interface tests, 99% coverage.**
+- No file exceeds 320 lines; no `TODO`/`FIXME` left in the tree.
+- Phases 0-7 complete, plus two rigour checks that were not in the original plan
+  (the attention baseline and the chronological split).
+
+**Known remaining work:** the chronological check still needs its Transformer
+run (`scripts/chronological_check.py --arch transformer`), ideally on the GPU
+machine — see the interlude above.
 
 *(Later phases will be appended here as they are completed.)*

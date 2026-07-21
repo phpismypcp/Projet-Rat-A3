@@ -1,18 +1,27 @@
+# Versions are floors, not pins. The tested combination is noted on each line so
+# a failure can be reproduced against a known-good set.
+
 # Core ML / data
-torch>=2.2
-numpy>=1.26
-pandas>=2.2
-scikit-learn>=1.4
+torch>=2.2                # tested: 2.13.0
+numpy>=1.26               # tested: 2.5.1
+pandas>=2.2               # tested: 3.0.3
+scikit-learn>=1.4         # tested: 1.9.0
 
 # Interface
-streamlit>=1.36
+# >=1.50 required: the dashboard uses st.dataframe(on_select=...) for row
+# selection and the width="stretch" API that replaced use_container_width.
+streamlit>=1.50           # tested: 1.59.2
+# Altair ships with Streamlit today, but app/charts.py imports it directly, so
+# it is declared explicitly rather than relied on as a transitive dependency.
+altair>=5.0               # tested: 6.2.2
 
 # Explainer (local LLM via Ollama HTTP API)
-requests>=2.31
+requests>=2.31            # tested: 2.34.2
 
-# Viz
-matplotlib>=3.8
+# Viz — optional at runtime: scripts/evaluate.py degrades gracefully without it
+# and simply skips the PR-curve PNG.
+matplotlib>=3.8           # tested: 3.11.0
 
 # Dev / test
-pytest>=8.0
-pytest-cov>=5.0
+pytest>=8.0               # tested: 9.1.1
+pytest-cov>=5.0           # tested: 7.1.0
