@@ -134,7 +134,7 @@ replaced independently.
   threshold to cut false positives.
 - **Phase 5 — LLM explainer** *(complete)*: prompt → Ollama → structured explanation, with
   graceful fallback if the model is unavailable.
-- **Phase 6 — Streamlit UI**: the analyst dashboard.
+- **Phase 6 — Streamlit UI** *(complete)*: the analyst dashboard.
 - **Phase 7 — Docs & polish**: README, diagram, final test coverage.
 
 ---
@@ -500,5 +500,83 @@ per model, so this cannot silently recur.
   gap (33 vs 52-62) is the more robust difference.
 - The Transformer was trained on the separate GPU machine; the baselines here on
   CPU. Same loop, config and seed, but not the same hardware.
+
+### Phase 6 — Streamlit analyst dashboard *(complete)*
+Written **test-first** (25 new tests; 160 passing + 5 opt-in, **99% coverage**,
+the service layer at 100%). This is the spec's *"interface réutilisable par des
+analystes métiers capable de justifier chaque détection"*.
+
+#### Keeping the UI testable
+
+Streamlit code is awkward to unit-test, so none of the logic lives in it. A
+`service.py` composition root holds everything the dashboard needs to *know*
+(summary KPIs, the ranked queue, per-transaction evidence), and the Streamlit
+file only decides how to *draw* it. The service is covered by ordinary unit
+tests like every other module.
+
+The service deliberately tolerates **`labels is None`**. Ground truth exists only
+because this is a benchmark dataset; a real deployment has no `Class` column, and
+an interface that collapsed without it would not be "reusable" in any meaningful
+sense. Every label-dependent field degrades to `None` and the UI hides it.
+
+#### What the analyst sees
+
+- **KPI row** — transactions, flagged, frauds caught, precision, recall. These
+  come from the same `evaluation/metrics.py` used in the written evaluation, so
+  the dashboard cannot quietly disagree with the report.
+- **Queue**, ranked by severity — the most suspicious transaction first, which is
+  the whole point of a triage screen.
+- **Detail panel** — verdict, severity against the threshold, the responsible
+  attributes, and the LLM explanation with a risk badge.
+
+#### Two charting decisions worth defending
+
+1. **Deviations are plotted in standard deviations, not raw units.** Raw values
+   cannot share an axis here: `Amount` runs to the thousands while a PCA
+   component sits near zero, so a shared scale would render everything except
+   `Amount` invisible. The scaled gap is the one quantity comparable across
+   attributes; the exact figures in original units stay in a table beside the
+   chart.
+2. **The encoding is diverging, not sequential.** "Higher than expected" and
+   "lower than expected" are opposite states rather than more/less of one thing,
+   so the chart uses a two-hue diverging pair around a neutral zero. Risk levels
+   use a reserved status palette and always pair colour with an icon and a label,
+   never colour alone.
+
+Caching follows the measurements taken in Phase 5: scoring 42,894 transactions
+happens once per session (`st.cache_resource`), and each 6-9 s LLM explanation is
+cached by transaction id behind a spinner, so revisiting a transaction is instant.
+
+#### The bug that justifies testing the UI properly
+
+The dashboard initially *appeared* to work: the server booted, `/_stcore/health`
+returned `ok`, and `/` returned HTTP 200. It was in fact broken — the script
+crashed on `ModuleNotFoundError: No module named 'charts'`. Streamlit renders
+client-side, so **a healthy port proves only that the server started, not that
+the app runs**.
+
+Running the script headlessly through `streamlit.testing.v1.AppTest` exposed it
+immediately. The cause: `streamlit run` happens to inject the script's own
+directory into `sys.path`, so the sibling `charts` import worked under exactly
+one launch path and nothing else. Now both `src/` and `app/` are added
+explicitly.
+
+The same run also caught `use_container_width`, whose removal date
+(2025-12-31) has **already passed** — it still works but is living on borrowed
+time. Replaced with `width="stretch"`.
+
+`tests/test_streamlit_app.py` keeps both regressions closed. It needs the real
+artifacts and the 150 MB CSV, so it is opt-in to protect the fast feedback loop:
+
+```
+RUN_APP_TEST=1 PYTHONPATH=src pytest tests/test_streamlit_app.py
+```
+
+Verified against real data: 42,894 transactions, 209 flagged, 176/246 frauds
+caught, precision 84.2%, recall 71.5% — matching the Phase 4 report exactly, with
+transaction #42823 (severity 53.8) preselected and explained.
+
+**Next:** Phase 7 — docs & polish (architecture diagram, final README pass). The
+optional chronological-split check from the pipeline review also remains open.
 
 *(Later phases will be appended here as they are completed.)*

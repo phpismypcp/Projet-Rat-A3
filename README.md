@@ -141,8 +141,29 @@ sur une machine plus puissante (GPU) :
 Les hyperparamètres (taille du modèle, époques, seuil) se règlent uniquement
 dans `src/anomaly_explainer/config.py`.
 
+## Interface analyste
+
+```bash
+PYTHONPATH=src ./.venv/bin/streamlit run app/streamlit_app.py
+```
+
+Prérequis : `scripts/train_model.py` puis `scripts/evaluate.py` (le tableau de
+bord lit `data/artifacts/threshold.json`).
+
+Le tableau de bord affiche les indicateurs globaux, une **file d'attente triée
+par sévérité** (le plus suspect en premier), et pour chaque transaction : le
+verdict, la sévérité par rapport au seuil, les attributs responsables, et
+l'explication du LLM local avec son niveau de risque.
+
+> Les écarts sont tracés en **écarts-types** : les unités brutes ne sont pas
+> comparables entre attributs (`Amount` en milliers, composantes PCA proches de
+> zéro). Les valeurs exactes en unités d'origine restent dans le tableau associé.
+
 ## Tests
 
 ```bash
 PYTHONPATH=src ./.venv/bin/pytest --cov=src/anomaly_explainer
+
+# Test d'intégration de l'interface (charge le dataset complet, ~1 min)
+RUN_APP_TEST=1 PYTHONPATH=src ./.venv/bin/pytest tests/test_streamlit_app.py
 ```
