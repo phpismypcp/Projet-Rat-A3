@@ -141,6 +141,30 @@ sur une machine plus puissante (GPU) :
 Les hyperparamètres (taille du modèle, époques, seuil) se règlent uniquement
 dans `src/anomaly_explainer/config.py`.
 
+### Le découpage aléatoire est-il trop optimiste ?
+
+```bash
+PYTHONPATH=src ./.venv/bin/python scripts/chronological_check.py --arch dense
+```
+
+Le jeu de données est un enregistrement continu de 48 h. Un découpage aléatoire
+permet au modèle d'être entraîné sur l'heure 40 et évalué sur l'heure 3, ce qu'un
+système en production ne peut jamais faire. Découpage **chronologique** (entraîner
+sur le passé, évaluer sur le futur), auto-encodeur dense, tout le reste constant :
+
+| Découpage | Fraudes (test) | PR-AUC | ROC-AUC | F1 |
+|-----------|---------------:|-------:|--------:|---:|
+| Aléatoire (rapporté) | 246 | 0,7138 | 0,9545 | 0,687 |
+| Chronologique | 52 | **0,5314** | 0,9184 | 0,562 |
+
+**La PR-AUC chute de 26 %.** Le découpage aléatoire embellit donc nettement les
+résultats. À noter : la ROC-AUC bouge à peine (0,954 → 0,918) — elle masque
+l'essentiel du problème, ce qui confirme la PR-AUC comme métrique de référence.
+
+> ⚠️ Le découpage chronologique ne conserve que **52 fraudes de test contre 246**
+> (384 fraudes tombent dans la fenêtre d'entraînement). Résultat indicatif, mesuré
+> sur l'auto-encodeur dense ; l'équivalent Transformer reste à exécuter.
+
 ## Interface analyste
 
 ```bash

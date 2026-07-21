@@ -579,4 +579,73 @@ transaction #42823 (severity 53.8) preselected and explained.
 **Next:** Phase 7 — docs & polish (architecture diagram, final README pass). The
 optional chronological-split check from the pipeline review also remains open.
 
+### Interlude — Is our own evaluation protocol optimistic? *(partially complete)*
+
+Every number reported so far comes from a **random** train/val/test split. But
+the dataset is a single 48-hour recording, and a deployed detector only ever
+scores transactions that happen *after* the ones it learned from. A random split
+lets training and evaluation interleave in time — the model can effectively train
+on hour 40 and be tested on hour 3. This checks whether that flatters us.
+
+`prepare_data_chronological()` cuts the data at **time quantiles** rather than at
+random: train on the earliest window, evaluate on strictly later ones.
+Transactions sharing a timestamp always land in the same split, so no evaluation
+row can precede a training row.
+
+#### The cost of doing this honestly
+
+| Split | Train | Val (frauds) | Test (frauds) |
+|---|---:|---:|---:|
+| Random | 199,020 | 42,893 (**246**) | 42,894 (**246**) |
+| Chronological | 198,984 | 42,718 (**56**) | 42,721 (**52**) |
+
+384 of the 492 frauds fall inside the training window. They cannot join the
+normal-only training set, and moving them to a later split would destroy the
+ordering the experiment exists to preserve, so they are discarded. **The
+chronological evaluation therefore rests on 52 test frauds instead of 246** —
+far wider error bars.
+
+#### Result (dense auto-encoder, both runs converged)
+
+Same architecture, same seed, same training loop, same threshold rule. Only the
+split changed:
+
+| Split | Test frauds | PR-AUC | ROC-AUC | Precision | Recall | F1 | FP |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Random (as reported) | 246 | **0.7138** | 0.9545 | 0.722 | 0.654 | 0.687 | 62 |
+| Chronological | 52 | **0.5314** | 0.9184 | 0.614 | 0.519 | 0.562 | 17 |
+
+**PR-AUC falls from 0.714 to 0.531 — −0.18 absolute, −26% relative.** The random
+split materially flatters the reported numbers.
+
+Note that **ROC-AUC barely moved** (0.954 → 0.918) while PR-AUC collapsed. That is
+a second, independent demonstration of why PR-AUC is the honest headline metric
+here: ROC-AUC concealed most of the damage.
+
+#### How to present this
+
+Lead with it rather than hide it. "We tested whether our own evaluation protocol
+was optimistic and found that it was, by roughly a quarter of PR-AUC" is a far
+stronger position than being asked about temporal leakage and having no answer.
+It also does not invalidate the earlier work: the Transformer-vs-dense comparison
+was run under a *single consistent* split, so its conclusion (attention helps)
+is unaffected by this.
+
+#### Status: unfinished
+
+This was measured with the **dense** auto-encoder as a fast proxy, which is a
+valid controlled experiment for the split effect but is not the headline
+architecture. The equivalent Transformer run was started and **cancelled** — at
+roughly 4 minutes per epoch on CPU, training two Transformers from scratch was
+heading for 3-5 hours.
+
+To finish it later (ideally on the GPU machine):
+
+```
+PYTHONPATH=src python scripts/chronological_check.py --arch transformer --epochs 40
+```
+
+Until then the −26% figure should be quoted as *indicative, measured on a plain
+auto-encoder*, not as a Transformer result.
+
 *(Later phases will be appended here as they are completed.)*
