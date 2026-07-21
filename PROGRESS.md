@@ -132,7 +132,7 @@ replaced independently.
   threshold, severity score.
 - **Phase 4 — Evaluation** *(complete)*: precision/recall/F1/PR-AUC; tune
   threshold to cut false positives.
-- **Phase 5 — LLM explainer**: prompt → Ollama → structured explanation, with
+- **Phase 5 — LLM explainer** *(complete)*: prompt → Ollama → structured explanation, with
   graceful fallback if the model is unavailable.
 - **Phase 6 — Streamlit UI**: the analyst dashboard.
 - **Phase 7 — Docs & polish**: README, diagram, final test coverage.
@@ -366,5 +366,72 @@ before trying a larger one.
 
 The explainer will still ship with a template fallback so the tests and the UI
 degrade gracefully if Ollama is ever unavailable.
+
+### Phase 5 — LLM explainer *(complete)*
+Written **test-first** (54 new tests; 128 total passing, **99% coverage**, all
+`explain/` modules at 100%). This is the half of the project that turns a score
+into something an analyst can act on.
+
+#### Two gaps found by re-reading the spec against the code
+
+Before writing the explainer we checked what §4.2 actually demands the LLM be
+shown, and the detection engine could not yet supply all of it:
+
+1. **The reconstruction itself was never exposed.** `reconstruction.py` returned
+   only *errors*. But "the model expected an amount near 88 and saw 1809" is far
+   more useful to an analyst than "the error on Amount was 12.1". Added
+   `reconstruct()`, and `per_feature_errors()` is now derived from it, so the
+   errors and the rebuilt values can never disagree.
+2. **Values were in z-scores.** The detector works on standardized features, so
+   a raw value reaching the LLM would read `Amount = 4.7`. Everything is now
+   **inverse-transformed back to real units** before it reaches the prompt.
+
+#### What was built (four small modules under `explain/`)
+
+- **`context.py`** — assembles the evidence bundle for one transaction: the four
+  inputs the spec names (original values, reconstruction, per-attribute error,
+  severity), in real units, with attributes ranked by error.
+- **`prompt.py`** — renders the prompt. Two deliberate choices: it presents
+  *evidence rather than conclusions* (it never says "this is fraud", or the
+  explanation would just parrot our own verdict), and it **states that V1–V28
+  are anonymised PCA components** so the model doesn't invent confident stories
+  about what `V14` means. Output language is configurable, French by default.
+- **`ollama_client.py`** — the HTTP client. Its job is to fail *clearly*: a dead
+  server, a missing model and a slow generation are three different problems
+  with three different fixes, so they get three different messages.
+  `is_available()` checks the server **and** that the model is installed — the
+  precise failure we hit in Phase 0, where the server was running happily with
+  an empty model list.
+- **`explainer.py`** — orchestration, built for a 3B model on CPU that will
+  sometimes misbehave. It tolerates a bare string where a list was requested,
+  re-derives the risk level from measured severity if the model invents one, and
+  falls back to a deterministic template on *any* failure. Every result carries
+  `source` (`"llm"` or `"fallback"`) so the UI can be honest about where the
+  words came from.
+
+#### Verified end to end, not just unit-tested
+
+`scripts/explain_transaction.py` runs the whole pipeline against the real
+trained model, the tuned threshold, and live Ollama. On the most severe true
+fraud in the test set (row 42823, error 67.94 vs threshold 1.26, **severity
+53.8**) it produced a coherent French explanation, correctly rated it `high`
+risk, and — notably — respected the PCA caveat, describing "composantes PCA
+anonymisées" instead of fabricating a meaning for `V17`.
+
+The `--no-llm` and `--false-positive` paths were exercised too. The worst false
+positive (row 12626, severity 31.0) is a genuinely odd-looking normal
+transaction, which is a useful thing to be able to show during the defense.
+
+**A note on test discipline.** One test demanded the fallback quote a real
+monetary value and initially failed: the fallback described only the top
+contributor, which was `V17` — a number meaningless to a human. Rather than
+relax the test, we fixed the behaviour: the fallback now also surfaces `Amount`
+or `Time` whenever they are among the offending attributes, because those are
+the only features an analyst can actually reason about.
+
+**Next:** Phase 6 — the Streamlit dashboard. Design constraint already measured:
+an explanation costs 6–9 s on CPU, so the UI must cache per transaction and show
+a spinner rather than blocking, and detection over the full test set should be
+computed once and cached with `st.cache_resource` / `st.cache_data`.
 
 *(Later phases will be appended here as they are completed.)*

@@ -110,6 +110,9 @@ class ExplainerConfig:
     json_format: bool = True
     temperature: float = 0.2       # low: explanations should be stable, not creative
     top_k_attributes: int = 6      # how many most-deviant features to surface
+    # The deliverable and its defense are in French, so analyst-facing text is
+    # French by default. Switch to "en" here if an English demo is needed.
+    language: str = "fr"
 
 
 DATASET = DatasetConfig()

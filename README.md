@@ -73,6 +73,11 @@ PYTHONPATH=src ./.venv/bin/python scripts/train_model.py
 # Évaluation + calibration du seuil (écrit threshold.json dans data/artifacts/)
 PYTHONPATH=src ./.venv/bin/python scripts/evaluate.py
 
+# Détecter + expliquer une transaction (pipeline complet, LLM local)
+PYTHONPATH=src ./.venv/bin/python scripts/explain_transaction.py
+PYTHONPATH=src ./.venv/bin/python scripts/explain_transaction.py --false-positive
+PYTHONPATH=src ./.venv/bin/python scripts/explain_transaction.py --no-llm
+
 # Interface analyste
 PYTHONPATH=src ./.venv/bin/streamlit run app/streamlit_app.py
 ```

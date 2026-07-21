@@ -10,6 +10,7 @@ import torch
 from anomaly_explainer.config import MODEL
 from anomaly_explainer.detection.reconstruction import (
     per_feature_errors,
+    reconstruct,
     reconstruction_errors,
 )
 from anomaly_explainer.model.transformer_ae import TransformerAutoEncoder
@@ -70,4 +71,46 @@ def test_input_not_mutated():
     x = np.random.randn(4, cfg.n_features).astype(np.float32)
     before = x.copy()
     _ = per_feature_errors(model, x)
+    assert np.array_equal(x, before)
+
+
+# --- reconstructed values (Phase 5) -----------------------------------------
+# The spec requires the LLM to see the model's reconstruction, not just the
+# error derived from it, so the raw rebuilt values must be obtainable.
+
+def test_reconstruct_returns_same_shape_as_input():
+    model, cfg = _model()
+    x = np.random.randn(6, cfg.n_features).astype(np.float32)
+    assert reconstruct(model, x).shape == (6, cfg.n_features)
+
+
+def test_per_feature_errors_are_squared_difference_from_reconstruction():
+    """The two functions must agree — errors are derived from the rebuild."""
+    model, cfg = _model()
+    x = np.random.randn(9, cfg.n_features).astype(np.float32)
+    recon = reconstruct(model, x)
+    assert np.allclose(per_feature_errors(model, x), (x - recon) ** 2, atol=1e-6)
+
+
+def test_reconstruct_batching_matches_single_pass():
+    model, cfg = _model()
+    x = np.random.randn(50, cfg.n_features).astype(np.float32)
+    assert np.allclose(
+        reconstruct(model, x, batch_size=1000),
+        reconstruct(model, x, batch_size=7),
+        atol=1e-6,
+    )
+
+
+def test_reconstruct_empty_input():
+    model, cfg = _model()
+    x = np.empty((0, cfg.n_features), dtype=np.float32)
+    assert reconstruct(model, x).shape == (0, cfg.n_features)
+
+
+def test_reconstruct_does_not_mutate_input():
+    model, cfg = _model()
+    x = np.random.randn(4, cfg.n_features).astype(np.float32)
+    before = x.copy()
+    _ = reconstruct(model, x)
     assert np.array_equal(x, before)

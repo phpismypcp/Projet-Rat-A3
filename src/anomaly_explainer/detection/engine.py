@@ -13,7 +13,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from anomaly_explainer.detection.reconstruction import per_feature_errors
+from anomaly_explainer.detection.reconstruction import reconstruct
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,8 @@ class DetectionOutput:
     Attributes:
         errors: total reconstruction error per sample, shape ``(n,)``.
         per_feature_errors: squared error per feature, shape ``(n, n_features)``.
+        reconstructions: the model's rebuilt values, shape ``(n, n_features)``.
+            Still in scaled space — the explainer inverse-transforms them.
         is_anomaly: boolean flag per sample (``error > threshold``).
         severity: ``error / threshold`` — ``> 1`` exactly when anomalous.
         threshold: the threshold value used.
@@ -31,6 +33,7 @@ class DetectionOutput:
 
     errors: np.ndarray
     per_feature_errors: np.ndarray
+    reconstructions: np.ndarray
     is_anomaly: np.ndarray
     severity: np.ndarray
     threshold: float
@@ -49,9 +52,10 @@ class AnomalyDetector:
 
     def detect(self, x: np.ndarray) -> DetectionOutput:
         """Score scaled feature matrix ``x`` (shape ``(n, n_features)``)."""
-        pfe = per_feature_errors(
+        recon = reconstruct(
             self.model, x, device=self.device, batch_size=self.batch_size
         )
+        pfe = ((np.asarray(x, dtype=np.float32) - recon) ** 2).astype(np.float32)
         errors = pfe.mean(axis=1).astype(np.float32)
         is_anomaly = errors > self.threshold
         # Guard against a zero threshold when computing the ratio.
@@ -61,6 +65,7 @@ class AnomalyDetector:
         return DetectionOutput(
             errors=errors,
             per_feature_errors=pfe,
+            reconstructions=recon,
             is_anomaly=is_anomaly,
             severity=severity,
             threshold=self.threshold,
