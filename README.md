@@ -49,8 +49,20 @@ PYTHONPATH=src ./.venv/bin/python scripts/download_data.py
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh   # nécessite sudo
-ollama pull llama3.2:3b
+ollama pull llama3.2:3b                          # ~2 Go
+
+# Vérifier que le modèle est disponible
+ollama list
+curl -s http://localhost:11434/api/tags
 ```
+
+Performance mesurée sur cette machine (CPU uniquement, ~10 tokens/s) :
+**6-9 s par explication** à chaud, ~19 s à froid (rechargement du modèle en RAM).
+
+> Ollama décharge un modèle inactif au bout de 5 min par défaut, ce qui rendrait
+> la première explication après une pause 3x plus lente. `ExplainerConfig.keep_alive`
+> est donc fixé à `30m`. Les modèles sont stockés sur la partition **racine**
+> (`/usr/share/ollama/.ollama/models`), pas dans `/home`.
 
 ## Utilisation
 

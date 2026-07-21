@@ -89,9 +89,26 @@ class DetectionConfig:
 
 @dataclass(frozen=True)
 class ExplainerConfig:
+    """Local LLM settings.
+
+    Measured on this CPU-only machine with ``llama3.2:3b`` (Q4_K_M, ~10 tok/s):
+    a warm explanation takes 6-9 s, a cold one ~19 s because the 2 GB model has
+    to be read back into RAM.
+
+    ``keep_alive`` is why that matters. Ollama's default is 5 minutes, so a pause
+    during a live demo silently unloads the model and the next explanation takes
+    three times as long. Pinning it to 30 minutes keeps the demo responsive.
+
+    ``json_format`` asks Ollama to constrain decoding to valid JSON, which makes
+    the structured explanation parseable instead of best-effort scraped prose.
+    """
+
     ollama_host: str = "http://localhost:11434"
     model_name: str = "llama3.2:3b"
-    request_timeout_s: int = 120
+    request_timeout_s: int = 120   # generous: covers a cold model load
+    keep_alive: str = "30m"
+    json_format: bool = True
+    temperature: float = 0.2       # low: explanations should be stable, not creative
     top_k_attributes: int = 6      # how many most-deviant features to surface
 
 

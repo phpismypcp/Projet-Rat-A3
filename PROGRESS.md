@@ -335,10 +335,36 @@ reviewing the spec against the code:
 2. Values must be **inverse-transformed** back to real units before reaching the
    LLM, so an explanation reads "Amount = €4,821" instead of a z-score.
 
-⚠️ **Blocker for Phase 5:** Ollama is installed and running but has **no model
-pulled** (`/api/tags` returns an empty list) — the Phase 0 pull never completed.
-Run `ollama pull llama3.2:3b` (~2 GB) before the explainer can be demoed live.
-The explainer will be built with a template fallback so tests and the UI still
-work without it.
+#### Ollama — resolved and measured
+
+The Phase 0 model pull had never actually completed (`/api/tags` returned an
+empty list), which would have blocked Phase 5. Now fixed and verified end to end:
+
+- **`llama3.2:3b` pulled** (2.0 GB, Q4_K_M quantisation, 3.2B parameters). The
+  Ollama service is `active` and `enabled`, so it survives reboots.
+- **Verified it does the actual job**, not just that it responds: given a
+  realistic payload (severity, per-attribute errors, original vs reconstructed
+  values) it returned valid JSON containing exactly the four fields the spec
+  requires — `attributes`, `interpretation`, `risk_level`, `suggestions` — and
+  correctly rated the example transaction `high` risk.
+- **Speed on this CPU-only machine:** ~10 tokens/s → **6-9 s per warm
+  explanation**, ~19 s cold. `size_vram: 0` confirms pure CPU inference.
+
+Two settings were added to `ExplainerConfig` as a direct result of measuring:
+
+1. **`keep_alive = "30m"`.** Ollama unloads an idle model after 5 minutes by
+   default. During a live defense, any pause longer than that would silently
+   make the next explanation take ~19 s instead of ~7 s. Verified the override
+   works (model expiry moved from 5 to 30 minutes).
+2. **`json_format = True`** — Ollama constrains decoding to valid JSON, so the
+   explanation can be *parsed* rather than scraped out of prose with a regex.
+
+Storage note: the systemd service keeps models on the **root** partition
+(`/usr/share/ollama/.ollama/models`), now at 73% used with 7.9 GB free, while the
+264 GB of free space sits on `/home`. Fine for this 2 GB model; worth knowing
+before trying a larger one.
+
+The explainer will still ship with a template fallback so the tests and the UI
+degrade gracefully if Ollama is ever unavailable.
 
 *(Later phases will be appended here as they are completed.)*
