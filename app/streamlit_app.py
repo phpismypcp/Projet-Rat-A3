@@ -133,7 +133,8 @@ def _render_kpis(summary) -> None:
     cols[4].metric("Rappel", f"{summary.recall:.1%}", help=f"F1 = {summary.f1:.3f}")
 
 
-def _render_detail(service, split: str, index: int) -> None:
+def _render_detection(service, index: int) -> None:
+    """Verdict, severity and the attribute chart — sits beside the queue."""
     context = service.context(index, top_k=EXPLAINER.top_k_attributes)
     actual = service.actual_label(index)
 
@@ -184,29 +185,57 @@ def _render_detail(service, split: str, index: int) -> None:
             width="stretch",
         )
 
-    # --- explanation --------------------------------------------------------
-    st.markdown("#### Explication")
+
+def _render_explanation(service, split: str, index: int) -> None:
+    """The LLM justification, given the full page width.
+
+    This is the half of the project that distinguishes it from an ordinary
+    detector, and it is prose — so it gets its own full-width band under the
+    charts rather than being squeezed into a side column where long sentences
+    wrap every few words.
+    """
+    context = service.context(index, top_k=EXPLAINER.top_k_attributes)
+
+    st.markdown("### 🧠 Explication de la détection")
     with st.spinner("Génération de l'explication par le LLM local (6-9 s)…"):
         result = _explanation(split, index)
 
-    st.markdown(_risk_badge(result["risk_level"]), unsafe_allow_html=True)
-    st.write("")
-    st.write(result["interpretation"])
+    header_left, header_right = st.columns([1, 3])
+    with header_left:
+        st.markdown(_risk_badge(result["risk_level"]), unsafe_allow_html=True)
+    with header_right:
+        st.caption(
+            f"Transaction #{index} · sévérité {context.severity:.2f}× · "
+            + (
+                f"généré localement par {EXPLAINER.model_name} via Ollama"
+                if result["source"] == "llm"
+                else "mode dégradé — texte déterministe, sans LLM"
+            )
+        )
 
-    if result["attributes"]:
-        st.markdown("**Attributs mis en cause :** " + ", ".join(result["attributes"]))
-    if result["suggestions"]:
-        st.markdown("**Pistes d'analyse :**")
-        for suggestion in result["suggestions"]:
-            st.markdown(f"- {suggestion}")
+    st.info(result["interpretation"])
+
+    detail_left, detail_right = st.columns(2)
+    with detail_left:
+        st.markdown("**Attributs mis en cause**")
+        if result["attributes"]:
+            for attribute in result["attributes"]:
+                st.markdown(f"- `{attribute}`")
+        else:
+            st.caption("—")
+    with detail_right:
+        st.markdown("**Pistes d'analyse**")
+        if result["suggestions"]:
+            for suggestion in result["suggestions"]:
+                st.markdown(f"- {suggestion}")
+        else:
+            st.caption("—")
 
     if result["source"] == "fallback":
         st.caption(
             "⚠️ Explication générée sans le LLM (mode dégradé) — texte déterministe "
             "construit à partir des mêmes mesures."
         )
-    else:
-        st.caption(f"Généré localement par {EXPLAINER.model_name} via Ollama.")
 
 
 # --- page -------------------------------------------------------------------
@@ -273,7 +302,11 @@ def main() -> None:
         selected = int(frame.iloc[rows[0]]["index"]) if rows else int(frame.iloc[0]["index"])
 
     with detail_col:
-        _render_detail(service, split, selected)
+        _render_detection(service, selected)
+
+    # Full width, below both columns: the explanation is prose and needs room.
+    st.divider()
+    _render_explanation(service, split, selected)
 
 
 if __name__ == "__main__":
